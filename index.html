@@ -50,11 +50,10 @@
     <button id="retryAll">↻ Tout recharger</button>
     <button id="retryFail">↻ Retenter les échecs</button>
   </div>
-  <div class="sub" id="status">Chargement des cours (source : Yahoo Finance)…</div>
+  <div class="sub" id="status">Chargement des cours (sources : Yahoo Finance + FRED via ton proxy Netlify)…</div>
 </header>
 <main id="main"></main>
-<footer>Cliquez sur une carte pour ouvrir la source (Yahoo Finance) ·
-graphiques : 5 derniers jours de bourse · actualisation à chaque ouverture.</footer>
+<footer>Cliquez sur une carte pour ouvrir la source · taux souverains : source FRED (Fed américaine), valeurs mensuelles.</footer>
 
 <script>
 "use strict";
@@ -62,34 +61,30 @@ graphiques : 5 derniers jours de bourse · actualisation à chaque ouverture.</f
 /* ========== 1. CONFIGURATION DES INDICATEURS ========== */
 const GROUPS = [
   { name: "🥇 Or & 🛢️ Pétrole", items: [
-    { label: "Once d'or (XAU)",     ticker: "GC=F",   badge: "CMD", d: 2, suf: " $" },
-    { label: "Brent (Mer du Nord)", ticker: "BZ=F",   badge: "CMD", d: 2, suf: " $" },
-    { label: "WTI (Texas)",         ticker: "CL=F",   badge: "CMD", d: 2, suf: " $" }
+    { label: "Once d'or (XAU)",     ticker: "GC=F", badge: "CMD", d: 2, suf: " $" },
+    { label: "Brent (Mer du Nord)", ticker: "BZ=F", badge: "CMD", d: 2, suf: " $" },
+    { label: "WTI (Texas)",         ticker: "CL=F", badge: "CMD", d: 2, suf: " $" }
   ]},
   { name: "📞 Actions", items: [
     { label: "Orange S.A. (Euronext Paris)", ticker: "ORA.PA", badge: "CMD", d: 2, suf: " €" }
   ]},
-  { name: "🏦 Taux souverains à 2 ans (%)", items: [
-    { label: "France — 2 ans",      ticker: "FR2Y", badge: "FRA", d: 3, suf: " %" },
-    { label: "Allemagne — 2 ans",   ticker: "DE2Y", badge: "DEU", d: 3, suf: " %" },
-    { label: "Japon — 2 ans",       ticker: "JP2Y", badge: "JPN", d: 3, suf: " %" },
-    { label: "Royaume-Uni — 2 ans", ticker: "GB2Y", badge: "GBR", d: 3, suf: " %" },
-    { label: "États-Unis — 2 ans",  ticker: "US2Y", badge: "USA", d: 3, suf: " %" }
+  { name: "🏦 Taux souverains 2 ans (%)", items: [
+    { label: "États-Unis — 2 ans", ticker: "FRED:DGS2", badge: "USA", d: 2, suf: " %" }
   ]},
-  { name: "🏦 Taux souverains à 10 ans (%)", items: [
-    { label: "France — 10 ans (OAT)",        ticker: "FR10Y", badge: "FRA", d: 3, suf: " %" },
-    { label: "Allemagne — 10 ans (Bund)",    ticker: "DE10Y", badge: "DEU", d: 3, suf: " %" },
-    { label: "Japon — 10 ans (JGB)",         ticker: "JP10Y", badge: "JPN", d: 3, suf: " %" },
-    { label: "Royaume-Uni — 10 ans (Gilt)",  ticker: "GB10Y", badge: "GBR", d: 3, suf: " %" },
-    { label: "États-Unis — 10 ans (Treas.)", ticker: "^TNX",  badge: "USA", d: 2, suf: " %" }
+  { name: "🏦 Taux souverains 10 ans (%) — dernières valeurs mensuelles", items: [
+    { label: "France — 10 ans (OAT)",       ticker: "FRED:IRLTLT01FRM156N", badge: "FRA", d: 2, suf: " %" },
+    { label: "Allemagne — 10 ans (Bund)",   ticker: "FRED:IRLTLT01DEM156N", badge: "DEU", d: 2, suf: " %" },
+    { label: "Japon — 10 ans (JGB)",        ticker: "FRED:IRLTLT01JPM156N", badge: "JPN", d: 2, suf: " %" },
+    { label: "Royaume-Uni — 10 ans (Gilt)", ticker: "FRED:IRLTLT01GBM156N", badge: "GBR", d: 2, suf: " %" },
+    { label: "États-Unis — 10 ans (Treas.)", ticker: "^TNX", badge: "USA", d: 2, suf: " %" }
   ]}
 ];
 
 /* ========== 2. RÉSEAU : ton proxy Netlify en priorité, relais publics en repli ========== */
 const RELAIS = [
-  /* Ton proxy Netlify (fonction : netlify/functions/yahoo.js) */
+  /* Ton proxy Netlify (netlify/functions/yahoo.js) */
   function (ticker) { return "/.netlify/functions/yahoo?ticker=" + encodeURIComponent(ticker); },
-  /* Replis publics si la fonction est momentanément indisponible */
+  /* Replis publics (Yahoo uniquement — utile pour or, pétrole, actions) */
   function (ticker) {
     return "https://corsproxy.io/?url=" + encodeURIComponent(
       "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(ticker) + "?range=5d&interval=1d");
@@ -119,7 +114,6 @@ function yahooRows(js) {
   return rows;
 }
 
-/* Récupère la série d'un ticker : relais préféré d'abord, puis les autres, 2 tours */
 let relaisPrefere = 0;
 async function yahooSeries(ticker) {
   let lastErr = null;
@@ -131,7 +125,7 @@ async function yahooSeries(ticker) {
         if (!resp.ok) { lastErr = new Error("HTTP " + resp.status); continue; }
         const js = await resp.json();
         const rows = yahooRows(js);
-        relaisPrefere = idx;   /* ce relais fonctionne : prioritaire au prochain appel */
+        relaisPrefere = idx;
         return rows;
       } catch (e) { lastErr = e; }
     }
@@ -168,6 +162,12 @@ function weeklyChart(values, color) {
     + '<polygon points="' + p + ',' + h + ' ' + ligne + ' ' + (w - p) + ',' + h + '" fill="' + color + '" opacity=".10"/>'
     + '<polyline points="' + ligne + '" fill="none" stroke="' + color + '" stroke-width="1.8" stroke-linejoin="round"/>'
     + '<circle cx="' + dernier[0] + '" cy="' + dernier[1] + '" r="3" fill="' + color + '"/></svg>';
+}
+/* Lien source : FRED pour les séries FRED:, Yahoo sinon */
+function sourceUrl(ticker) {
+  return ticker.startsWith("FRED:")
+    ? "https://fred.stlouisfed.org/series/" + encodeURIComponent(ticker.slice(5))
+    : "https://finance.yahoo.com/quote/" + encodeURIComponent(ticker);
 }
 
 /* ========== 4. COMPTEUR D'ÉTAT ========== */
@@ -222,10 +222,10 @@ async function charger(entry) {
     g.items.forEach(function (item) {
       const card = document.createElement("a");
       card.className = "card";
-      card.href = "https://finance.yahoo.com/quote/" + encodeURIComponent(item.ticker);
+      card.href = sourceUrl(item.ticker);
       card.target = "_blank";
       card.rel = "noopener";
-      card.title = "Ouvrir " + item.ticker + " sur Yahoo Finance";
+      card.title = "Ouvrir la source (" + item.ticker + ")";
       card.innerHTML =
         '<div class="head"><div class="title">' + item.label + '</div>'
         + '<span class="badge ' + item.badge + '">' + (item.badge === "CMD" ? "Marché" : item.badge) + '</span></div>'
